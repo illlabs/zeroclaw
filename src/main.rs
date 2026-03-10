@@ -80,6 +80,7 @@ mod service;
 mod skillforge;
 mod skills;
 mod tools;
+mod telemetry;
 mod tunnel;
 mod util;
 

@@ -26,6 +26,18 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
 
     {
+        let telemetry_path = config.config_path.parent()
+            .unwrap_or(&std::path::PathBuf::from("."))
+            .join("zeroclaw-telemetry.sock");
+        let server = crate::telemetry::TelemetryServer::get();
+        handles.push(tokio::spawn(async move {
+            if let Err(e) = server.run(telemetry_path).await {
+                tracing::error!("Failed to run telemetry server: {e}");
+            }
+        }));
+    }
+
+    {
         let gateway_cfg = config.clone();
         let gateway_host = host.clone();
         handles.push(spawn_component_supervisor(
@@ -132,6 +144,7 @@ fn spawn_state_writer(config: Config) -> JoinHandle<()> {
             }
             let data = serde_json::to_vec_pretty(&json).unwrap_or_else(|_| b"{}".to_vec());
             let _ = tokio::fs::write(&path, data).await;
+            crate::telemetry::broadcast_health(json);
         }
     })
 }

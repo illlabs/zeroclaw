@@ -1861,6 +1861,10 @@ pub struct ObservabilityConfig {
     /// "none" | "log" | "prometheus" | "otel"
     pub backend: String,
 
+    /// Enable the bespoke UDS telemetry server (broadcasts state changes)
+    #[serde(default)]
+    pub telemetry_server_enabled: bool,
+
     /// OTLP endpoint (e.g. "http://localhost:4318"). Only used when backend = "otel".
     #[serde(default)]
     pub otel_endpoint: Option<String>,
@@ -1889,6 +1893,7 @@ impl Default for ObservabilityConfig {
             backend: "none".into(),
             otel_endpoint: None,
             otel_service_name: None,
+            telemetry_server_enabled: false,
             runtime_trace_mode: default_runtime_trace_mode(),
             runtime_trace_path: default_runtime_trace_path(),
             runtime_trace_max_entries: default_runtime_trace_max_entries(),

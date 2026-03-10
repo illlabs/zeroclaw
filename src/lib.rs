@@ -49,7 +49,7 @@ pub(crate) mod daemon;
 pub(crate) mod doctor;
 pub mod gateway;
 pub(crate) mod hardware;
-pub(crate) mod health;
+pub mod health;
 pub(crate) mod heartbeat;
 pub mod hooks;
 pub(crate) mod identity;
@@ -69,6 +69,7 @@ pub(crate) mod skills;
 pub mod tools;
 pub(crate) mod tunnel;
 pub(crate) mod util;
+pub mod telemetry;
 
 pub use config::Config;
 

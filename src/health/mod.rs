@@ -1,11 +1,11 @@
 use chrono::Utc;
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentHealth {
     pub status: String,
     pub updated_at: String,
@@ -14,7 +14,7 @@ pub struct ComponentHealth {
     pub restart_count: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthSnapshot {
     pub pid: u32,
     pub updated_at: String,
@@ -57,6 +57,11 @@ where
         });
     update(entry);
     entry.updated_at = now;
+    drop(map);
+
+    // Broadcast update if it's not the initial 'starting' state to avoid noise
+    let snap = snapshot_json();
+    crate::telemetry::broadcast_health(snap);
 }
 
 pub fn mark_component_ok(component: &str) {
