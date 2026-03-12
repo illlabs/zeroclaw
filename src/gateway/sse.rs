@@ -57,6 +57,79 @@ pub async fn handle_sse_events(
         .into_response()
 }
 
+/// GET /telemetry/stream — Secure SSE telemetry stream limited to 20 clients
+pub async fn handle_telemetry_stream(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Auth check
+    if state.pairing.require_pairing() {
+        let token = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|auth| auth.strip_prefix("Bearer "))
+            .unwrap_or("");
+
+        if !state.pairing.is_authenticated(token) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "Unauthorized — provide Authorization: Bearer <token>",
+            )
+                .into_response();
+        }
+    }
+
+    // Attempt to subscribe
+    let rx = match crate::telemetry::TelemetryServer::get().subscribe() {
+        Ok(receiver) => receiver,
+        Err(e) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("Telemetry unavailable: {}", e),
+            )
+            .into_response();
+        }
+    };
+
+    let server_ref = crate::telemetry::TelemetryServer::get().clone();
+    
+    let stream = BroadcastStream::new(rx).filter_map(
+        |result: Result<
+            serde_json::Value,
+            tokio_stream::wrappers::errors::BroadcastStreamRecvError,
+        >| {
+            match result {
+                Ok(value) => Some(Ok::<_, Infallible>(
+                    Event::default().data(value.to_string()),
+                )),
+                Err(_) => None, // Skip lagged messages
+            }
+        },
+    );
+
+    // On stream drop, connection is severed, we must decrement the subscriber count.
+    // We achieve this by mapping the stream so we can hook the Drop semantics or just relying on a guard.
+    // However, since Sse handles dropping the underlying stream, we can wrap the stream in a struct that implements Drop.
+    struct UnsubscribeGuard {
+        server: std::sync::Arc<crate::telemetry::TelemetryServer>,
+    }
+    impl Drop for UnsubscribeGuard {
+        fn drop(&mut self) {
+            self.server.unsubscribe();
+        }
+    }
+    let guard = UnsubscribeGuard { server: server_ref };
+
+    let mapped_stream = stream.map(move |item| {
+        let _keep_guard = &guard;
+        item
+    });
+
+    Sse::new(mapped_stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
 /// Broadcast observer that forwards events to the SSE broadcast channel.
 pub struct BroadcastObserver {
     inner: Box<dyn crate::observability::Observer>,

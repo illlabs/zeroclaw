@@ -109,6 +109,7 @@ glob = "0.3"
 
 # Binary discovery (init system detection)
 which = "8.0"
+sysinfo = "0.33"
 
 # WebSocket client channels (Discord/Lark/DingTalk/Nostr)
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }

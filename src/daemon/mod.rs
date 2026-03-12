@@ -42,15 +42,9 @@ pub async fn run_background(config: Config, host: String, port: u16) -> Result<V
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
 
     {
-        let telemetry_path = config.config_path.parent()
-            .unwrap_or(&std::path::PathBuf::from("."))
-            .join("zeroclaw-telemetry.sock");
-        let server = crate::telemetry::TelemetryServer::get();
-        handles.push(tokio::spawn(async move {
-            if let Err(e) = server.run(telemetry_path).await {
-                tracing::error!("Failed to run telemetry server: {e}");
-            }
-        }));
+        // Telemetry server logic has been relocated to an SSE endpoint on the Gateway
+        // to inherit identical authentication schemas and network scaling rules.
+        // It's still available via `crate::telemetry::TelemetryServer::get()`.
     }
 
     {

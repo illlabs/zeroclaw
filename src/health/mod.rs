@@ -17,22 +17,32 @@ pub struct ComponentHealth {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthSnapshot {
     pub pid: u32,
+    pub version: String,
     pub updated_at: String,
     pub uptime_seconds: u64,
+    pub cpu_usage: Option<f32>,
+    pub memory_used_mb: Option<u64>,
+    pub memory_total_mb: Option<u64>,
     pub components: BTreeMap<String, ComponentHealth>,
 }
 
 struct HealthRegistry {
     started_at: Instant,
+    system: Mutex<sysinfo::System>,
     components: Mutex<BTreeMap<String, ComponentHealth>>,
 }
 
 static REGISTRY: OnceLock<HealthRegistry> = OnceLock::new();
 
 fn registry() -> &'static HealthRegistry {
-    REGISTRY.get_or_init(|| HealthRegistry {
-        started_at: Instant::now(),
-        components: Mutex::new(BTreeMap::new()),
+    REGISTRY.get_or_init(|| {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_all();
+        HealthRegistry {
+            started_at: Instant::now(),
+            system: Mutex::new(sys),
+            components: Mutex::new(BTreeMap::new()),
+        }
     })
 }
 
@@ -89,11 +99,26 @@ pub fn bump_component_restart(component: &str) {
 
 pub fn snapshot() -> HealthSnapshot {
     let components = registry().components.lock().clone();
+    
+    let (cpu, mem_used, mem_total) = {
+        let mut sys = registry().system.lock();
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
+        (
+            Some(sys.global_cpu_usage()),
+            Some(sys.used_memory() / 1024 / 1024),
+            Some(sys.total_memory() / 1024 / 1024),
+        )
+    };
 
     HealthSnapshot {
         pid: std::process::id(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         updated_at: now_rfc3339(),
         uptime_seconds: registry().started_at.elapsed().as_secs(),
+        cpu_usage: cpu,
+        memory_used_mb: mem_used,
+        memory_total_mb: mem_total,
         components,
     }
 }

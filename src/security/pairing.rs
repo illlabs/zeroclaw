@@ -72,7 +72,30 @@ impl PairingGuard {
             })
             .collect();
         let code = if require_pairing && tokens.is_empty() {
-            Some(generate_code())
+            let c = generate_code();
+            // Seamless local discovery: write the code to a temporary file
+            // so the local Selo UI can pick it up without terminal interaction.
+            if let Some(proj_dirs) = directories::ProjectDirs::from("io", "zeroclaw", "zeroclaw") {
+                let discovery_dir = proj_dirs.config_dir();
+                let _ = std::fs::create_dir_all(discovery_dir);
+                let discovery_path = discovery_dir.join("pairing_code.tmp");
+                
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    let mut options = std::fs::OpenOptions::new();
+                    options.write(true).create(true).truncate(true).mode(0o600);
+                    if let Ok(mut file) = options.open(&discovery_path) {
+                        use std::io::Write;
+                        let _ = file.write_all(c.as_bytes());
+                    }
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = std::fs::write(&discovery_path, c.as_bytes());
+                }
+            }
+            Some(c)
         } else {
             None
         };
@@ -137,6 +160,12 @@ impl PairingGuard {
 
                     // Consume the pairing code so it cannot be reused
                     *pairing_code = None;
+
+                    // Clean up discovery file
+                    if let Some(proj_dirs) = directories::ProjectDirs::from("io", "zeroclaw", "zeroclaw") {
+                        let discovery_path = proj_dirs.config_dir().join("pairing_code.tmp");
+                        let _ = std::fs::remove_file(discovery_path);
+                    }
 
                     return Ok(Some(token));
                 }
