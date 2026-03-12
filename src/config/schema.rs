@@ -2729,6 +2729,7 @@ fn default_draft_update_interval_ms() -> u64 {
 
 /// Telegram bot channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct TelegramConfig {
     /// Telegram Bot API token (from @BotFather).
     pub bot_token: String,
@@ -2761,6 +2762,7 @@ impl ChannelConfig for TelegramConfig {
 
 /// Discord bot channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct DiscordConfig {
     /// Discord bot token (from Discord Developer Portal).
     pub bot_token: String,
@@ -2790,6 +2792,7 @@ impl ChannelConfig for DiscordConfig {
 
 /// Slack bot channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct SlackConfig {
     /// Slack bot OAuth token (xoxb-...).
     pub bot_token: String,
@@ -2845,6 +2848,7 @@ impl ChannelConfig for MattermostConfig {
 
 /// Webhook channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct WebhookConfig {
     /// Port to listen on for incoming webhooks.
     pub port: u16,
@@ -2863,6 +2867,7 @@ impl ChannelConfig for WebhookConfig {
 
 /// iMessage channel configuration (macOS only).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct IMessageConfig {
     /// Allowed iMessage contacts (phone numbers or email addresses). Empty = deny all.
     pub allowed_contacts: Vec<String>,
@@ -2879,6 +2884,7 @@ impl ChannelConfig for IMessageConfig {
 
 /// Matrix channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct MatrixConfig {
     /// Matrix homeserver URL (e.g. `"https://matrix.org"`).
     pub homeserver: String,
@@ -2906,6 +2912,7 @@ impl ChannelConfig for MatrixConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct SignalConfig {
     /// Base URL for the signal-cli HTTP daemon (e.g. "http://127.0.0.1:8686").
     pub http_url: String,
@@ -2941,6 +2948,7 @@ impl ChannelConfig for SignalConfig {
 ///
 /// Set `phone_number_id` for Cloud API mode, or `session_path` for Web mode.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct WhatsAppConfig {
     /// Access token from Meta Business Suite (Cloud API mode)
     #[serde(default)]
@@ -2985,6 +2993,7 @@ impl ChannelConfig for WhatsAppConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct LinqConfig {
     /// Linq Partner API token (Bearer auth)
     pub api_token: String,
@@ -3038,6 +3047,7 @@ impl ChannelConfig for WatiConfig {
 
 /// Nextcloud Talk bot configuration (webhook receive + OCS send API).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct NextcloudTalkConfig {
     /// Nextcloud base URL (e.g. "https://cloud.example.com").
     pub base_url: String,
@@ -3096,6 +3106,7 @@ impl WhatsAppConfig {
 
 /// IRC channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct IrcConfig {
     /// IRC server hostname
     pub server: String,
@@ -3150,6 +3161,7 @@ pub enum LarkReceiveMode {
 /// Lark/Feishu configuration for messaging integration.
 /// Lark is the international version; Feishu is the Chinese version.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct LarkConfig {
     /// App ID from Lark/Feishu developer console
     pub app_id: String,
@@ -3191,6 +3203,7 @@ impl ChannelConfig for LarkConfig {
 
 /// Feishu configuration for messaging integration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct FeishuConfig {
     /// App ID from Feishu developer console
     pub app_id: String,
@@ -3495,6 +3508,7 @@ impl Default for AuditConfig {
 
 /// DingTalk configuration for Stream Mode messaging
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct DingTalkConfig {
     /// Client ID (AppKey) from DingTalk developer console
     pub client_id: String,
@@ -3516,6 +3530,7 @@ impl ChannelConfig for DingTalkConfig {
 
 /// QQ Official Bot configuration (Tencent QQ Bot SDK)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct QQConfig {
     /// App ID from QQ Bot developer console
     pub app_id: String,
@@ -3537,6 +3552,7 @@ impl ChannelConfig for QQConfig {
 
 /// Nostr channel configuration (NIP-04 + NIP-17 private messages)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct NostrConfig {
     /// Private key in hex or nsec bech32 format
     pub private_key: String,

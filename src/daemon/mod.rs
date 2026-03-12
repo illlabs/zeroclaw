@@ -9,6 +9,22 @@ use tokio::time::Duration;
 const STATUS_FLUSH_SECONDS: u64 = 5;
 
 pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
+    let handles = run_background(config, host, port).await?;
+
+    tokio::signal::ctrl_c().await?;
+    crate::health::mark_component_error("daemon", "shutdown requested");
+
+    for handle in &handles {
+        handle.abort();
+    }
+    for handle in handles {
+        let _ = handle.await;
+    }
+
+    Ok(())
+}
+
+pub async fn run_background(config: Config, host: String, port: u16) -> Result<Vec<JoinHandle<()>>> {
     let initial_backoff = config.reliability.channel_initial_backoff_secs.max(1);
     let max_backoff = config
         .reliability
@@ -102,19 +118,8 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     println!("🧠 ZeroClaw daemon started");
     println!("   Gateway:  http://{host}:{port}");
     println!("   Components: gateway, channels, heartbeat, scheduler");
-    println!("   Ctrl+C to stop");
 
-    tokio::signal::ctrl_c().await?;
-    crate::health::mark_component_error("daemon", "shutdown requested");
-
-    for handle in &handles {
-        handle.abort();
-    }
-    for handle in handles {
-        let _ = handle.await;
-    }
-
-    Ok(())
+    Ok(handles)
 }
 
 pub fn state_file_path(config: &Config) -> PathBuf {
