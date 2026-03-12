@@ -1,5 +1,6 @@
 use crate::config::Config;
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,7 +10,7 @@ const SERVICE_LABEL: &str = "com.zeroclaw.daemon";
 const WINDOWS_TASK_NAME: &str = "ZeroClaw Daemon";
 
 /// Supported init systems for service management
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum InitSystem {
     /// Auto-detect based on system indicators
     #[default]
@@ -18,6 +19,19 @@ pub enum InitSystem {
     Systemd,
     /// OpenRC (via rc-service)
     Openrc,
+}
+
+/// Status of the background service
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServiceState {
+    /// Service unit file does not exist
+    NotInstalled,
+    /// Service is installed but not running
+    Stopped,
+    /// Service is active and running
+    Running,
+    /// Could not determine status
+    Unknown,
 }
 
 impl FromStr for InitSystem {
@@ -101,6 +115,95 @@ pub fn handle_command(
         crate::ServiceCommands::Restart => restart(config, init_system),
         crate::ServiceCommands::Status => status(config, init_system),
         crate::ServiceCommands::Uninstall => uninstall(config, init_system),
+    }
+}
+
+pub fn get_status(config: &Config, init_system: InitSystem) -> ServiceState {
+    let init_system = match init_system.resolve() {
+        Ok(s) => s,
+        Err(_) => return ServiceState::Unknown,
+    };
+
+    if !is_installed_internal(config, init_system) {
+        return ServiceState::NotInstalled;
+    }
+
+    if is_active_internal(config, init_system) {
+        return ServiceState::Running;
+    }
+
+    ServiceState::Stopped
+}
+
+#[cfg(target_os = "macos")]
+pub fn is_installed_internal(_config: &Config, _init: InitSystem) -> bool {
+    macos_service_file().is_ok()
+}
+
+#[cfg(target_os = "linux")]
+pub fn is_installed_internal(config: &Config, init: InitSystem) -> bool {
+    match init {
+        InitSystem::Systemd => linux_service_file(config).map(|p| p.exists()).unwrap_or(false),
+        InitSystem::Openrc => Path::new("/etc/init.d/zeroclaw-daemon").exists(),
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn is_installed_internal(_config: &Config, _init: InitSystem) -> bool {
+    let output = Command::new("schtasks")
+        .args(&["/Query", "/TN", windows_task_name(), "/FO", "CSV", "/NH"])
+        .output();
+
+    match output {
+        Ok(out) => out.status.success() && !out.stdout.is_empty(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn is_active_internal(_config: &Config, _init: InitSystem) -> bool {
+    let output = Command::new("launchctl")
+        .args(&["list", SERVICE_LABEL])
+        .output();
+
+    match output {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn is_active_internal(_config: &Config, init: InitSystem) -> bool {
+    match init {
+        InitSystem::Systemd => {
+            let output = Command::new("systemctl")
+                .args(&["--user", "is-active", "--quiet", "zeroclaw.service"])
+                .status();
+            output.map(|s| s.success()).unwrap_or(false)
+        }
+        InitSystem::Openrc => {
+            let output = Command::new("rc-service")
+                .args(&["zeroclaw", "status"])
+                .status();
+            output.map(|s| s.success()).unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn is_active_internal(_config: &Config, _init: InitSystem) -> bool {
+    let output = Command::new("schtasks")
+        .args(&["/Query", "/TN", windows_task_name(), "/FO", "LIST", "/V"])
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            stdout.contains("Running")
+        }
+        Err(_) => false,
     }
 }
 
@@ -1024,7 +1127,7 @@ fn install_windows(config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn macos_service_file() -> Result<PathBuf> {
+pub fn macos_service_file() -> Result<PathBuf> {
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
@@ -1034,7 +1137,7 @@ fn macos_service_file() -> Result<PathBuf> {
         .join(format!("{SERVICE_LABEL}.plist")))
 }
 
-fn linux_service_file(config: &Config) -> Result<PathBuf> {
+pub fn linux_service_file(config: &Config) -> Result<PathBuf> {
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
