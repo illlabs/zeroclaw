@@ -167,7 +167,7 @@ pub fn load_aieos_identity(
     }
 
     // Try aieos_path first
-    if let Some(ref path) = config.aieos_path {
+    if let Some(path) = &config.aieos_path {
         let full_path = if Path::new(path).is_absolute() {
             PathBuf::from(path)
         } else {
@@ -184,7 +184,7 @@ pub fn load_aieos_identity(
     }
 
     // Fall back to aieos_inline
-    if let Some(ref inline) = config.aieos_inline {
+    if let Some(inline) = &config.aieos_inline {
         let identity = parse_aieos_identity(inline).context("Failed to parse inline AIEOS JSON")?;
 
         return Ok(Some(identity));

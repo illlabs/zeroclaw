@@ -629,6 +629,8 @@ impl ModelRoutingConfigTool {
             .get(&name)
             .cloned()
             .unwrap_or(DelegateAgentConfig {
+                name: Some(name.clone()),
+                description: None,
                 provider: provider.clone(),
                 model: model.clone(),
                 system_prompt: None,
@@ -638,6 +640,9 @@ impl ModelRoutingConfigTool {
                 agentic: false,
                 allowed_tools: Vec::new(),
                 max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
+                compact_context: None,
+                parallel_tools: None,
+                tool_dispatcher: None,
             });
 
         next_agent.provider = provider;

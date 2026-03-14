@@ -34,6 +34,8 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use axum_server::tls_rustls::RustlsConfig;
+use base64::{Engine as _, engine::general_purpose};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -623,7 +625,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         ));
 
     let state = AppState {
-        config: config_state,
+        config: config_state.clone(),
         provider,
         model,
         temperature,
@@ -702,11 +704,38 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .fallback(get(static_files::handle_spa_fallback));
 
     // Run the server
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    let tls_enabled = {
+        let guard = config_state.lock();
+        guard.gateway.tls.enabled
+    };
+
+    if tls_enabled {
+        let (cert_path, key_path) = {
+            let guard = config_state.lock();
+            (guard.gateway.tls.cert_path.clone(), guard.gateway.tls.key_path.clone())
+        };
+
+        if let (Some(cert), Some(key)) = (cert_path, key_path) {
+            println!("  🌐 TLS: ENABLED (https://{}:{})", host, actual_port);
+            let rustls_config = RustlsConfig::from_pem_file(cert, key).await?;
+            axum_server::bind_rustls(listener.local_addr()?, rustls_config)
+                .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                .await?;
+        } else {
+            eprintln!("  ❌ TLS configuration missing cert_path or key_path. Falling back to HTTP.");
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await?;
+        }
+    } else {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -786,11 +815,28 @@ async fn handle_pair(
                 return (StatusCode::OK, Json(body));
             }
 
+            let mut e2ee_secret = None;
+            if state.config.lock().gateway.e2ee.enabled {
+                let mut key = [0u8; 32];
+                use rand::RngExt;
+                rand::rng().fill(&mut key);
+                e2ee_secret = Some(general_purpose::STANDARD.encode(key));
+                
+                // Persist the secret to config if requested (or just for this session)
+                let cfg_clone = {
+                    let mut guard = state.config.lock();
+                    guard.gateway.e2ee.shared_secret = e2ee_secret.clone();
+                    guard.clone()
+                };
+                let _ = cfg_clone.save().await;
+            }
+ 
             let body = serde_json::json!({
                 "paired": true,
                 "persisted": true,
                 "token": token,
-                "message": "Save this token — use it as Authorization: Bearer <token>"
+                "e2ee_shared_secret": e2ee_secret,
+                "message": "Save this token and secret — use token as Authorization: Bearer <token>"
             });
             (StatusCode::OK, Json(body))
         }

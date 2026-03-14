@@ -1319,7 +1319,7 @@ pub fn create_resilient_provider_with_options(
         };
 
         match create_provider_with_options(provider_name, None, &fallback_options) {
-            Ok(provider) => providers.push((fallback.clone(), provider)),
+            Ok(provider) => providers.push((fallback.to_string(), provider)),
             Err(_error) => {
                 tracing::warn!(
                     fallback_provider = fallback,

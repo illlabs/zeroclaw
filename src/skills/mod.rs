@@ -80,20 +80,20 @@ pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
 pub fn load_skills_with_config(workspace_dir: &Path, config: &crate::config::Config) -> Vec<Skill> {
     load_skills_with_open_skills_config(
         workspace_dir,
-        Some(config.skills.open_skills_enabled),
+        Some(config.skills.open_skills),
         config.skills.open_skills_dir.as_deref(),
     )
 }
 
 fn load_skills_with_open_skills_config(
     workspace_dir: &Path,
-    config_open_skills_enabled: Option<bool>,
+    config_open_skills: Option<bool>,
     config_open_skills_dir: Option<&str>,
 ) -> Vec<Skill> {
     let mut skills = Vec::new();
 
     if let Some(open_skills_dir) =
-        ensure_open_skills_repo(config_open_skills_enabled, config_open_skills_dir)
+        ensure_open_skills_repo(config_open_skills, config_open_skills_dir)
     {
         skills.extend(load_open_skills(&open_skills_dir));
     }
@@ -225,7 +225,7 @@ fn load_open_skills(repo_dir: &Path) -> Vec<Skill> {
     skills
 }
 
-fn parse_open_skills_enabled(raw: &str) -> Option<bool> {
+fn parse_open_skills(raw: &str) -> Option<bool> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Some(true),
         "0" | "false" | "no" | "off" => Some(false),
@@ -233,12 +233,12 @@ fn parse_open_skills_enabled(raw: &str) -> Option<bool> {
     }
 }
 
-fn open_skills_enabled_from_sources(
-    config_open_skills_enabled: Option<bool>,
+fn open_skills_from_sources(
+    config_open_skills: Option<bool>,
     env_override: Option<&str>,
 ) -> bool {
     if let Some(raw) = env_override {
-        if let Some(enabled) = parse_open_skills_enabled(raw) {
+        if let Some(enabled) = parse_open_skills(raw) {
             return enabled;
         }
         if !raw.trim().is_empty() {
@@ -248,12 +248,12 @@ fn open_skills_enabled_from_sources(
         }
     }
 
-    config_open_skills_enabled.unwrap_or(false)
+    config_open_skills.unwrap_or(false)
 }
 
-fn open_skills_enabled(config_open_skills_enabled: Option<bool>) -> bool {
+fn open_skills(config_open_skills: Option<bool>) -> bool {
     let env_override = std::env::var("ZEROCLAW_OPEN_SKILLS_ENABLED").ok();
-    open_skills_enabled_from_sources(config_open_skills_enabled, env_override.as_deref())
+    open_skills_from_sources(config_open_skills, env_override.as_deref())
 }
 
 fn resolve_open_skills_dir_from_sources(
@@ -290,10 +290,10 @@ fn resolve_open_skills_dir(config_open_skills_dir: Option<&str>) -> Option<PathB
 }
 
 fn ensure_open_skills_repo(
-    config_open_skills_enabled: Option<bool>,
+    config_open_skills: Option<bool>,
     config_open_skills_dir: Option<&str>,
 ) -> Option<PathBuf> {
-    if !open_skills_enabled(config_open_skills_enabled) {
+    if !open_skills(config_open_skills) {
         return None;
     }
 
@@ -1395,17 +1395,17 @@ description = "Bare minimum"
     }
 
     #[test]
-    fn open_skills_enabled_resolution_prefers_env_then_config_then_default_false() {
-        assert!(!open_skills_enabled_from_sources(None, None));
-        assert!(open_skills_enabled_from_sources(Some(true), None));
-        assert!(!open_skills_enabled_from_sources(Some(true), Some("0")));
-        assert!(open_skills_enabled_from_sources(Some(false), Some("yes")));
+    fn open_skills_resolution_prefers_env_then_config_then_default_false() {
+        assert!(!open_skills_from_sources(None, None));
+        assert!(open_skills_from_sources(Some(true), None));
+        assert!(!open_skills_from_sources(Some(true), Some("0")));
+        assert!(open_skills_from_sources(Some(false), Some("yes")));
         // Invalid env values should fall back to config.
-        assert!(open_skills_enabled_from_sources(
+        assert!(open_skills_from_sources(
             Some(true),
             Some("invalid")
         ));
-        assert!(!open_skills_enabled_from_sources(
+        assert!(!open_skills_from_sources(
             Some(false),
             Some("invalid")
         ));
@@ -1463,7 +1463,7 @@ description = "Bare minimum"
 
         let mut config = crate::config::Config::default();
         config.workspace_dir = workspace_dir.clone();
-        config.skills.open_skills_enabled = true;
+        config.skills.open_skills = true;
         config.skills.open_skills_dir = Some(open_skills_dir.to_string_lossy().to_string());
 
         let skills = load_skills_with_config(&workspace_dir, &config);

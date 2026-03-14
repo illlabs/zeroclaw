@@ -9,6 +9,8 @@
 //! Server -> Client: {"type":"done","full_response":"..."}
 //! ```
 
+use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Nonce};
+use base64::{Engine as _, engine::general_purpose};
 use super::AppState;
 use axum::{
     extract::{
@@ -19,6 +21,30 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
+
+fn encrypt_payload(data: &str, key_b64: &str) -> Option<String> {
+    let key_bytes = general_purpose::STANDARD.decode(key_b64).ok()?;
+    let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes).ok()?;
+    let mut nonce_bytes = [0u8; 12];
+    use rand::RngExt;
+    rand::rng().fill(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher.encrypt(nonce, data.as_bytes()).ok()?;
+    let mut combined = nonce_bytes.to_vec();
+    combined.extend_from_slice(&ciphertext);
+    Some(general_purpose::STANDARD.encode(combined))
+}
+
+fn decrypt_payload(ciphertext_b64: &str, key_b64: &str) -> Option<String> {
+    let key_bytes = general_purpose::STANDARD.decode(key_b64).ok()?;
+    let ct_bytes = general_purpose::STANDARD.decode(ciphertext_b64).ok()?;
+    if ct_bytes.len() < 12 { return None; }
+    let (nonce_bytes, ciphertext) = ct_bytes.split_at(12);
+    let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes).ok()?;
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let plaintext = cipher.decrypt(nonce, ciphertext).ok()?;
+    String::from_utf8(plaintext).ok()
+}
 
 #[derive(Deserialize)]
 pub struct WsQuery {
@@ -52,7 +78,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     while let Some(msg) = receiver.next().await {
         let msg = match msg {
-            Ok(Message::Text(text)) => text,
+            Ok(Message::Text(text)) => {
+                let text_str = text.to_string();
+                if let Some(ref secret) = state.config.lock().gateway.e2ee.shared_secret {
+                    decrypt_payload(&text_str, secret).unwrap_or(text_str)
+                } else {
+                    text_str
+                }
+            },
             Ok(Message::Close(_)) | Err(_) => break,
             _ => continue,
         };
@@ -62,7 +95,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             Ok(v) => v,
             Err(_) => {
                 let err = serde_json::json!({"type": "error", "message": "Invalid JSON"});
-                let _ = sender.send(Message::Text(err.to_string().into())).await;
+                let mut err_msg = err.to_string();
+                if let Some(ref secret) = state.config.lock().gateway.e2ee.shared_secret {
+                    if let Some(enc) = encrypt_payload(&err_msg, secret) {
+                        err_msg = enc;
+                    }
+                }
+                let _ = sender.send(Message::Text(err_msg.into())).await;
                 continue;
             }
         };
@@ -121,7 +160,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         "type": "error",
                         "message": format!("Multimodal prep failed: {e}")
                     });
-                    let _ = sender.send(Message::Text(err.to_string().into())).await;
+                    let mut err_msg = err.to_string();
+                    if let Some(ref secret) = state.config.lock().gateway.e2ee.shared_secret {
+                        if let Some(enc) = encrypt_payload(&err_msg, secret) {
+                            err_msg = enc;
+                        }
+                    }
+                    let _ = sender.send(Message::Text(err_msg.into())).await;
                     continue;
                 }
             };
@@ -137,7 +182,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     "type": "done",
                     "full_response": response,
                 });
-                let _ = sender.send(Message::Text(done.to_string().into())).await;
+                let mut done_msg = done.to_string();
+                if let Some(ref secret) = state.config.lock().gateway.e2ee.shared_secret {
+                    if let Some(enc) = encrypt_payload(&done_msg, secret) {
+                        done_msg = enc;
+                    }
+                }
+                let _ = sender.send(Message::Text(done_msg.into())).await;
 
                 // Broadcast agent_end event
                 let _ = state.event_tx.send(serde_json::json!({
@@ -152,7 +203,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     "type": "error",
                     "message": sanitized,
                 });
-                let _ = sender.send(Message::Text(err.to_string().into())).await;
+                let mut err_msg = err.to_string();
+                if let Some(ref secret) = state.config.lock().gateway.e2ee.shared_secret {
+                    if let Some(enc) = encrypt_payload(&err_msg, secret) {
+                        err_msg = enc;
+                    }
+                }
+                let _ = sender.send(Message::Text(err_msg.into())).await;
 
                 // Broadcast error event
                 let _ = state.event_tx.send(serde_json::json!({

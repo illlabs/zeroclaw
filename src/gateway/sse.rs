@@ -14,6 +14,8 @@ use axum::{
 use std::convert::Infallible;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Nonce};
+use base64::{Engine as _, engine::general_purpose};
 
 /// GET /api/events — SSE event stream
 pub async fn handle_sse_events(
@@ -39,14 +41,22 @@ pub async fn handle_sse_events(
 
     let rx = state.event_tx.subscribe();
     let stream = BroadcastStream::new(rx).filter_map(
-        |result: Result<
+        move |result: Result<
             serde_json::Value,
             tokio_stream::wrappers::errors::BroadcastStreamRecvError,
         >| {
             match result {
-                Ok(value) => Some(Ok::<_, Infallible>(
-                    Event::default().data(value.to_string()),
-                )),
+                Ok(value) => {
+                    let data = value.to_string();
+                    let final_data = if let Some(ref secret) = state.config.lock().gateway.e2ee.shared_secret {
+                        encrypt_payload(&data, secret).unwrap_or(data)
+                    } else {
+                        data
+                    };
+                    Some(Ok::<_, Infallible>(
+                        Event::default().data(final_data),
+                    ))
+                }
                 Err(_) => None, // Skip lagged messages
             }
         },
@@ -94,14 +104,22 @@ pub async fn handle_telemetry_stream(
     let server_ref = crate::telemetry::TelemetryServer::get().clone();
     
     let stream = BroadcastStream::new(rx).filter_map(
-        |result: Result<
+        move |result: Result<
             serde_json::Value,
             tokio_stream::wrappers::errors::BroadcastStreamRecvError,
         >| {
             match result {
-                Ok(value) => Some(Ok::<_, Infallible>(
-                    Event::default().data(value.to_string()),
-                )),
+                Ok(value) => {
+                    let data = value.to_string();
+                    let final_data = if let Some(ref secret) = state.config.lock().gateway.e2ee.shared_secret {
+                        encrypt_payload(&data, secret).unwrap_or(data)
+                    } else {
+                        data
+                    };
+                    Some(Ok::<_, Infallible>(
+                        Event::default().data(final_data),
+                    ))
+                }
                 Err(_) => None, // Skip lagged messages
             }
         },
@@ -228,4 +246,23 @@ impl crate::observability::Observer for BroadcastObserver {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+}
+
+fn encrypt_payload(data: &str, key_b64: &str) -> Option<String> {
+    let key_bytes = general_purpose::STANDARD.decode(key_b64).ok()?;
+    let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes).ok()?;
+    
+    // In a real production system, we would use a counter or random nonce per message.
+    // For this implementation, we use a random nonce and prepend it.
+    let mut nonce_bytes = [0u8; 12];
+    use rand::RngExt;
+    rand::rng().fill(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    
+    let ciphertext = cipher.encrypt(nonce, data.as_bytes()).ok()?;
+    
+    let mut combined = nonce_bytes.to_vec();
+    combined.extend_from_slice(&ciphertext);
+    
+    Some(general_purpose::STANDARD.encode(combined))
 }

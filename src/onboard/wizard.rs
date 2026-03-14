@@ -5782,7 +5782,7 @@ mod tests {
         let mut config = Config::default();
         config.default_temperature = 1.23;
         config.memory.backend = "markdown".to_string();
-        config.skills.open_skills_enabled = true;
+        config.skills.open_skills = true;
         config.channels_config.cli = false;
 
         apply_provider_update(
@@ -5802,7 +5802,7 @@ mod tests {
         );
         assert_eq!(config.default_temperature, 1.23);
         assert_eq!(config.memory.backend, "markdown");
-        assert!(config.skills.open_skills_enabled);
+        assert!(config.skills.open_skills);
         assert!(!config.channels_config.cli);
     }
 

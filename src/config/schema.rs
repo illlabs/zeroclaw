@@ -241,6 +241,12 @@ pub struct ModelProviderConfig {
 /// Configuration for a delegate sub-agent used by the `delegate` tool.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DelegateAgentConfig {
+    /// Display name of the agent
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Brief description of the agent
+    #[serde(default)]
+    pub description: Option<String>,
     /// Provider name (e.g. "ollama", "openrouter", "anthropic")
     pub provider: String,
     /// Model name
@@ -266,6 +272,15 @@ pub struct DelegateAgentConfig {
     /// Maximum tool-call iterations in agentic mode.
     #[serde(default = "default_max_tool_iterations")]
     pub max_iterations: usize,
+    /// Compact context window (truncate older messages instead of sliding window)
+    #[serde(default)]
+    pub compact_context: Option<bool>,
+    /// Enable parallel tool calling support
+    #[serde(default)]
+    pub parallel_tools: Option<bool>,
+    /// Enable hierarchical tool dispatcher
+    #[serde(default)]
+    pub tool_dispatcher: Option<bool>,
 }
 
 fn default_max_depth() -> u32 {
@@ -448,7 +463,16 @@ pub enum SkillsPromptInjectionMode {
     Compact,
 }
 
-fn parse_skills_prompt_injection_mode(raw: &str) -> Option<SkillsPromptInjectionMode> {
+impl SkillsPromptInjectionMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Full => "Full",
+            Self::Compact => "Compact",
+        }
+    }
+}
+
+pub fn parse_skills_prompt_injection_mode(raw: &str) -> Option<SkillsPromptInjectionMode> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "full" => Some(SkillsPromptInjectionMode::Full),
         "compact" => Some(SkillsPromptInjectionMode::Compact),
@@ -461,8 +485,8 @@ fn parse_skills_prompt_injection_mode(raw: &str) -> Option<SkillsPromptInjection
 pub struct SkillsConfig {
     /// Enable loading and syncing the community open-skills repository.
     /// Default: `false` (opt-in).
-    #[serde(default)]
-    pub open_skills_enabled: bool,
+    #[serde(default, alias = "open_skills")]
+    pub open_skills: bool,
     /// Optional path to a local open-skills repository.
     /// If unset, defaults to `$HOME/open-skills` when enabled.
     #[serde(default)]
@@ -574,6 +598,10 @@ pub struct CostConfig {
     /// Per-model pricing (USD per 1M tokens)
     #[serde(default)]
     pub prices: std::collections::HashMap<String, ModelPricing>,
+
+    /// Maximum budget allowed per individual tool action in USD.
+    #[serde(default = "default_per_action_limit")]
+    pub per_action_budget_usd: f64,
 }
 
 /// Per-model pricing entry (USD per 1M tokens).
@@ -600,6 +628,10 @@ fn default_warn_percent() -> u8 {
     80
 }
 
+fn default_per_action_limit() -> f64 {
+    0.50
+}
+
 impl Default for CostConfig {
     fn default() -> Self {
         Self {
@@ -609,6 +641,7 @@ impl Default for CostConfig {
             warn_at_percent: default_warn_percent(),
             allow_override: false,
             prices: get_default_pricing(),
+            per_action_budget_usd: default_per_action_limit(),
         }
     }
 }
@@ -790,6 +823,35 @@ pub struct GatewayConfig {
     /// Maximum distinct idempotency keys retained in memory.
     #[serde(default = "default_gateway_idempotency_max_keys")]
     pub idempotency_max_keys: usize,
+    /// TLS configuration for secure gateway access.
+    #[serde(default)]
+    pub tls: GatewayTlsConfig,
+    /// End-to-end encryption configuration for payloads.
+    #[serde(default)]
+    pub e2ee: E2eeConfig,
+}
+
+/// TLS configuration for the gateway.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct GatewayTlsConfig {
+    /// Enable TLS (HTTPS)
+    pub enabled: bool,
+    /// Path to the TLS certificate file (PEM)
+    pub cert_path: Option<String>,
+    /// Path to the TLS private key file (PEM)
+    pub key_path: Option<String>,
+    /// Skip certificate validation (insecure — for local testing only)
+    #[serde(default)]
+    pub skip_verify: bool,
+}
+
+/// End-to-end encryption configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct E2eeConfig {
+    /// Enable payload encryption (Chacha20-Poly1305)
+    pub enabled: bool,
+    /// Shared secret for payload encryption (base64 encoded)
+    pub shared_secret: Option<String>,
 }
 
 fn default_gateway_port() -> u16 {
@@ -838,6 +900,8 @@ impl Default for GatewayConfig {
             rate_limit_max_keys: default_gateway_rate_limit_max_keys(),
             idempotency_ttl_secs: default_idempotency_ttl_secs(),
             idempotency_max_keys: default_gateway_idempotency_max_keys(),
+            tls: GatewayTlsConfig::default(),
+            e2ee: E2eeConfig::default(),
         }
     }
 }
@@ -1885,6 +1949,15 @@ pub struct ObservabilityConfig {
     /// Maximum entries retained when runtime_trace_mode = "rolling".
     #[serde(default = "default_runtime_trace_max_entries")]
     pub runtime_trace_max_entries: usize,
+    /// Log level for the gateway process
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+    /// Path to the gateway log file
+    #[serde(default = "default_log_path")]
+    pub trace_path: String,
+    /// OTel exporter endpoint (legacy field for UI compatibility)
+    #[serde(default)]
+    pub otel_exporter_endpoint: Option<String>,
 }
 
 impl Default for ObservabilityConfig {
@@ -1897,9 +1970,15 @@ impl Default for ObservabilityConfig {
             runtime_trace_mode: default_runtime_trace_mode(),
             runtime_trace_path: default_runtime_trace_path(),
             runtime_trace_max_entries: default_runtime_trace_max_entries(),
+            log_level: default_log_level(),
+            trace_path: default_log_path(),
+            otel_exporter_endpoint: None,
         }
     }
 }
+
+fn default_log_level() -> String { "info".into() }
+fn default_log_path() -> String { "zeroclaw.log".into() }
 
 fn default_runtime_trace_mode() -> String {
     "none".to_string()
@@ -2197,6 +2276,12 @@ pub struct ReliabilityConfig {
     /// Max backoff for channel/daemon restarts.
     #[serde(default = "default_channel_backoff_max_secs")]
     pub channel_max_backoff_secs: u64,
+    /// Maximum jitter (ms) added to retries.
+    #[serde(default = "default_retry_jitter_ms")]
+    pub retry_jitter_ms: u64,
+    /// Maximum delay (ms) for any single retry.
+    #[serde(default = "default_retry_max_delay_ms")]
+    pub retry_max_delay_ms: u64,
     /// Scheduler polling cadence in seconds.
     #[serde(default = "default_scheduler_poll_secs")]
     pub scheduler_poll_secs: u64,
@@ -2221,6 +2306,14 @@ fn default_channel_backoff_max_secs() -> u64 {
     60
 }
 
+fn default_retry_jitter_ms() -> u64 {
+    200
+}
+
+fn default_retry_max_delay_ms() -> u64 {
+    30000
+}
+
 fn default_scheduler_poll_secs() -> u64 {
     15
 }
@@ -2239,6 +2332,8 @@ impl Default for ReliabilityConfig {
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: default_channel_backoff_secs(),
             channel_max_backoff_secs: default_channel_backoff_max_secs(),
+            retry_jitter_ms: default_retry_jitter_ms(),
+            retry_max_delay_ms: default_retry_max_delay_ms(),
             scheduler_poll_secs: default_scheduler_poll_secs(),
             scheduler_retries: default_scheduler_retries(),
         }
@@ -2355,6 +2450,9 @@ pub struct QueryClassificationConfig {
     /// Classification rules evaluated in priority order.
     #[serde(default)]
     pub rules: Vec<ClassificationRule>,
+    /// Classification model override.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// A single classification rule mapping message patterns to a model hint.
@@ -2397,6 +2495,12 @@ pub struct HeartbeatConfig {
     /// Optional delivery recipient/chat identifier (required when `target` is set).
     #[serde(default, alias = "recipient")]
     pub to: Option<String>,
+    /// Interval in seconds (takes precedence over interval_minutes if set).
+    #[serde(default)]
+    pub interval_secs: Option<u32>,
+    /// Optional endpoint URL for HTTP-based heartbeat.
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 impl Default for HeartbeatConfig {
@@ -2407,6 +2511,8 @@ impl Default for HeartbeatConfig {
             message: None,
             target: None,
             to: None,
+            interval_secs: None,
+            endpoint: None,
         }
     }
 }
@@ -2816,7 +2922,7 @@ impl ChannelConfig for SlackConfig {
 }
 
 /// Mattermost bot channel configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct MattermostConfig {
     /// Mattermost server URL (e.g. `"https://mattermost.example.com"`).
     pub url: String,
@@ -4465,8 +4571,8 @@ impl Config {
         if let Ok(flag) = std::env::var("ZEROCLAW_OPEN_SKILLS_ENABLED") {
             if !flag.trim().is_empty() {
                 match flag.trim().to_ascii_lowercase().as_str() {
-                    "1" | "true" | "yes" | "on" => self.skills.open_skills_enabled = true,
-                    "0" | "false" | "no" | "off" => self.skills.open_skills_enabled = false,
+                    "1" | "true" | "yes" | "on" => self.skills.open_skills = true,
+                    "0" | "false" | "no" | "off" => self.skills.open_skills = false,
                     _ => tracing::warn!(
                         "Ignoring invalid ZEROCLAW_OPEN_SKILLS_ENABLED (valid: 1|0|true|false|yes|no|on|off)"
                     ),
@@ -4866,7 +4972,7 @@ mod tests {
         assert!(c.default_model.as_deref().unwrap().contains("claude"));
         assert!((c.default_temperature - 0.7).abs() < f64::EPSILON);
         assert!(c.api_key.is_none());
-        assert!(!c.skills.open_skills_enabled);
+        assert!(!c.skills.open_skills);
         assert_eq!(
             c.skills.prompt_injection_mode,
             SkillsPromptInjectionMode::Full
@@ -6340,10 +6446,10 @@ requires_openai_auth = true
     }
 
     #[test]
-    async fn env_override_open_skills_enabled_and_dir() {
+    async fn env_override_open_skills_and_dir() {
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
-        assert!(!config.skills.open_skills_enabled);
+        assert!(!config.skills.open_skills);
         assert!(config.skills.open_skills_dir.is_none());
         assert_eq!(
             config.skills.prompt_injection_mode,
@@ -6355,7 +6461,7 @@ requires_openai_auth = true
         std::env::set_var("ZEROCLAW_SKILLS_PROMPT_MODE", "compact");
         config.apply_env_overrides();
 
-        assert!(config.skills.open_skills_enabled);
+        assert!(config.skills.open_skills);
         assert_eq!(
             config.skills.open_skills_dir.as_deref(),
             Some("/tmp/open-skills")
@@ -6371,17 +6477,17 @@ requires_openai_auth = true
     }
 
     #[test]
-    async fn env_override_open_skills_enabled_invalid_value_keeps_existing_value() {
+    async fn env_override_open_skills_invalid_value_keeps_existing_value() {
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
-        config.skills.open_skills_enabled = true;
+        config.skills.open_skills = true;
         config.skills.prompt_injection_mode = SkillsPromptInjectionMode::Compact;
 
         std::env::set_var("ZEROCLAW_OPEN_SKILLS_ENABLED", "maybe");
         std::env::set_var("ZEROCLAW_SKILLS_PROMPT_MODE", "invalid");
         config.apply_env_overrides();
 
-        assert!(config.skills.open_skills_enabled);
+        assert!(config.skills.open_skills);
         assert_eq!(
             config.skills.prompt_injection_mode,
             SkillsPromptInjectionMode::Compact
